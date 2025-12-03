@@ -1,0 +1,17 @@
+from helper_functions import initialize_const
+#Test variables
+test_k = 5
+test_Nr = [4]*test_k
+test_Nt = [3]*test_k
+
+test_n = [60,100,200, 400, 500]
+test_l = [10, 20, 40, 50, 100]
+test_snr_db = [10]*test_k
+test_Pt = [16] * test_k
+test_fs = [2] * test_k
+test_B = [1000] *test_k
+test_epsilon = [0.001]*test_k
+TEST_CONST = initialize_const(B = test_B, Pt = test_Pt, fs = test_fs, snr_db = test_snr_db, desired_CNR = [], Nt = test_Nt, Nr = test_Nr, K = test_k, N = test_n, L = test_l, epsilon = test_epsilon)
+
+if __name__ == "__main__":
+    print(TEST_CONST)
