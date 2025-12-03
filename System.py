@@ -1,10 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from systemconstants import *
-from test_params import TEST_CONST
+from test_const import TEST_CONST
 from scipy.stats import norm
 
-test_const = TEST_CONST
 
 def Q_inv(x):
     return norm.ppf(1-x)
@@ -15,7 +14,7 @@ class UplinkSystem():
         
         self.K = self.system_constants["K"]
         self.Pt, self.NR, self.NT, self.n, self.L,self.T, self.SNR_DB, self.desired_CNR, self.latency, self.B, self.epsilon = self.system_constants["Pt"], self.system_constants["NR"], self.system_constants["NT"],self.system_constants["n"], self.system_constants["L"], self.system_constants["T"], self.system_constants["snr_db"], self.system_constants["desired_CNR"], self.system_constants["latency"], self.system_constants["B"], self.system_constants["epsilon"]
-
+        self.dk = self.system_constants["dk"]
         self.ChannelSystem = ChannelConstants(system_constants = self.system_constants)
         self.UserSystem = UserConstants(system_constants = self.system_constants)     
         
@@ -60,11 +59,14 @@ class UplinkSystem():
         self.C = [] #(K,L)
         self.V = [] #(K,L)
         self.R_fbl = [] #(K,L)
-        
         self.usr_avg_C = [] #(K,)
         
+        self.update_system(self.F)
+    
+    def update_system(self, F):
+        self.F = F
         for k in range(self.K):
-            I = np.identity(self.UserSystem.NR[k])
+            I = np.identity(self.NR[k])
             Tk = self.T[k]
             Hk = self.H[k] #(L,Nr,Nt)
             Hk_h_transpose = np.conj(Hk).transpose(0,2,1) #(L,Nt,Nr)
@@ -86,7 +88,7 @@ class UplinkSystem():
             self.V.append(Vk)
             self.R_fbl.append(R_fblk)
             
-            self.usr_avg_C.append(np.mean(Ck, axis = 0))        
+            self.usr_avg_C.append(np.mean(Ck, axis = 0))  
         
                                     
     
@@ -122,7 +124,8 @@ if __name__ == "__main__":
     #     print(f"Capacity per user per coh block: User {usr} :", System.C[usr])
     #     print(f"Ergodic capacity (avg across coh block) per user: User {usr}: ", System.ergodic_C[usr])
      
-    "Print Rate"
-    for usr in range(System.K):
-        print(f"Rate_fbl per user : User {usr} :", System.R_fbl[usr])
-        
+    # "Print Rate"
+    # for usr in range(System.K):
+    #     print(f"Rate_fbl per user : User {usr} :", System.R_fbl[usr])
+    print(System.sigma2[0])
+

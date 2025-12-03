@@ -31,5 +31,7 @@ def initialize_const(K, B: list[int] = [], fs: list[int] = [], Pt = [], t: list[
     assert len(epsilon) == K
     epsilon = np.array(epsilon)
     
+    dk = np.min((NR, NT), axis = 0)
+    
     constants = {"K":K, "Pt": Pt, "fs": fs, "NR":NR, "NT": NT,"n":n, "L": L, "T": T, "snr_db":snr_db, "desired_CNR":desired_CNR, "latency": latency, "B": B, "epsilon": epsilon, "dk": dk}
     return constants

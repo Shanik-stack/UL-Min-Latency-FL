@@ -3,7 +3,7 @@ from helper_functions import initialize_const
 from System import UplinkSystem
 import matplotlib.pyplot as plt
 import numpy as np
-from test_params import TEST_CONST
+from test_const import TEST_CONST
 
 # Plotting Channel Constansts/channel system
 

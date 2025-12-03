@@ -1,7 +1,7 @@
 import numpy as np
 from System import *
 import torch
-from test_params import TEST_CONST
+from test_const import TEST_CONST
 import torch.nn as nn
 DEVICE = "cuda:0" if torch.cuda.is_available else "cpu"
 

@@ -28,7 +28,7 @@ class UserConstants:
     def __init__(self, system_constants: dict = {}):
         
         self.K, self.Pt, self.NR, self.NT, self.n, self.L,self.T, = system_constants["K"], system_constants["Pt"], system_constants["NR"], system_constants["NT"], system_constants["n"], system_constants["L"], system_constants["T"]
-        self.dk = np.min((self.NR, self.NT), axis = 0) #No. of tranmsission stream
+        self.dk = system_constants["dk"] #No. of tranmsission stream
         
         #Define x_k and F_k (user message & precoder)
         self.X = []
