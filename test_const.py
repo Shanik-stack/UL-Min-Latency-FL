@@ -1,13 +1,13 @@
 from helper_functions import initialize_const
 #Test variables
 test_k = 5
-test_Nr = [4]*test_k
-test_Nt = [3]*test_k
+test_Nr = [8]*test_k
+test_Nt = [8]*test_k
 
-test_n = [60, 100, 200, 400, 500]
+test_n = [600, 100, 200, 400, 500]
 test_l = [10, 20, 40, 50, 100]
 test_snr_db = [10]*test_k
-test_Pt = [16] * test_k
+test_Pt = [32] * test_k
 test_fs = [2] * test_k
 test_B = [1000] *test_k
 test_epsilon = [1e-2, 1e-3 ,1e-3, 1e-4, 1e-5]

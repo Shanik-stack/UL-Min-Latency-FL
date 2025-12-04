@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from helper_functions import *
+from test_const import TEST_CONST
 """ Power constraints and precoder not yet implemented"""
 
 class ChannelConstants:
@@ -48,7 +49,7 @@ class UserConstants:
             for l in range(self.L[k]):
                 norm_factor = np.linalg.norm(F_k[l,:,:], 'fro')
                 F_k[l,:,:] = np.sqrt(self.Pt[k]) * F_k[l,:,:] / norm_factor  # satisfies tr(F F^H) = Pt
-           
+                # print(norm_factor)
             # User Power Constraint
             # total_power = np.sum([np.linalg.norm(F_k[l,:,:], 'fro')**2 for l in range(self.L[k])])
             # F_k = np.sqrt(self.Pt[k]) * F_k / np.sqrt(total_power)
@@ -59,9 +60,6 @@ class UserConstants:
 
 
 if __name__ == "__main__":
-    pass
-    # ch = ChannelConstants(N = [8, 16, 32])
-    # usr = UserConstants(N = [8, 16, 32])
-    # print(usr.X)
-    # ch.plot_magnitude_per_block()
-    
+    ch = ChannelConstants(system_constants = TEST_CONST)
+    usr = UserConstants(system_constants = TEST_CONST)
+    print(usr.Pt[1] - np.linalg.norm(usr.F[1][1], 'fro')**2, len(usr.F[1]))

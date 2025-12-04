@@ -37,7 +37,7 @@ class UplinkMLP_PrecoderNet(nn.Module):
         dk = config.dk
         in_dim = 2 * Nr * Nt #(H_real, H_imag)
         out_dim = 2 * Nt * dk
-        hidden = 4 * (4 * out_dim) # i want the last layer to have 4*out_dim neurons
+        hidden = 4 * (4 * out_dim) # i want the last layer to be 4*out_dim -> out_dim
         self.net = nn.Sequential(
             nn.Linear(in_dim, hidden),
             nn.ReLU(),
@@ -101,11 +101,12 @@ class LagrangianLoss(nn.Module):
         
         pre_rate_constraint = (R_fbl - cfg.B / cfg.n)
         pre_power_constraint = (cfg.P - torch.linalg.norm(F, ord='fro')**2)
+        # print("TEST: ", R_fbl , cfg.B , cfg.n) 
         
         rate_constraint = self.lambda_rate * pre_rate_constraint
         power_constraint = self.lambda_power *  pre_power_constraint
         
-        return -(R_fbl), R_fbl, pre_rate_constraint, pre_power_constraint
+        return -(R_fbl + rate_constraint + power_constraint)/3, R_fbl, pre_rate_constraint, pre_power_constraint
 
 #------------------------- Utility ----------------------------
 
@@ -119,9 +120,11 @@ def update_lambdas(lambda_rate:float, lambda_power:float, pre_rate_constraint, p
     pre_rate_constraint = pre_rate_constraint.detach().item()
     pre_power_constraint = pre_power_constraint.detach().item()
 
-    lambda_rate = lambda_rate - lr_rate_constraint * pre_rate_constraint
-    lambda_power = lambda_power - lr_power_constraint * pre_power_constraint
+    lambda_rate = lambda_rate + lr_rate_constraint * pre_rate_constraint
+    lambda_power = lambda_power + lr_power_constraint * pre_power_constraint
     
+    # lambda_rate = max(0, lambda_rate + lr_rate_constraint * pre_rate_constraint)
+    # lambda_power = max(0, lambda_power + lr_power_constraint * pre_power_constraint)
     return lambda_rate, lambda_power
 
 #--------------------- Precoder Neural Net Optimization Loop ----------------------
@@ -142,7 +145,7 @@ def optimize_precoder(precoder_net,  F: torch.Tensor, config:Config, epochs: int
         loss.backward()
         optimizer.step()
         
-        lambda_rate, lambda_power = update_lambdas(lambda_rate, lambda_power, pre_rate_constraint, pre_power_constraint, lr_rate_constraint, lr_power_constraint)
+        # lambda_rate, lambda_power = update_lambdas(lambda_rate, lambda_power, pre_rate_constraint, pre_power_constraint, lr_rate_constraint, lr_power_constraint)
         print(f'''
 Epoch: {epoch}
 Loss: {loss.item()}, lambda_rate={lambda_rate}, lambda_power={lambda_power}
@@ -150,11 +153,12 @@ R_fbl: {R_fbl}, pre_rate_constraint: {pre_rate_constraint}, pre_power_constraint
 ''')
     
     F_out = precoder_net(config.H)
-    F_final = out_to_precoder(F_out, config.Nt, config.dk)
+    F_final = out_to_precoder(F_out.view(-1), config.Nt, config.dk)
     return F_final
 
-def optimize_blocklength(n):
-    pass
+def optimize_blocklength(n:int, config:Config):
+    config.n = n
+    return config
 
 
 if __name__ == "__main__":
@@ -174,18 +178,29 @@ if __name__ == "__main__":
         sigma2 = uplinksystem.sigma2[user],
         epsilon = 0.0001,
     )
+    cfg = config
     F_initial = uplinksystem.F[user][block]
     
-    lambda_rate = 0.01
-    lambda_power = 0.01
-    epochs = 100
+    lambda_rate = 6
+    lambda_power = 5
+    epochs = 20
     lr_net = 0.001
-    lr_rate_constraint = 1
-    lr_power_constraint = 1
-    print(f''' User: {user}, block: {block} 
-Initial Rate: {uplinksystem.R_fbl[user][block].real}
-            ''')
+    lr_rate_constraint = 0.01
+    lr_power_constraint = 0.01
     precoder_net =  UplinkMLP_PrecoderNet(config = config)
-    F_final = optimize_precoder(precoder_net, F_initial, config, epochs = epochs, lambda_rate = lambda_rate, lambda_power = lambda_power, 
-                                lr_net = lr_net, lr_rate_constraint = lr_rate_constraint, lr_power_constraint = lr_power_constraint)
-    print(F_final)
+    
+    for n in [100, 80, 50]:
+        cfg = optimize_blocklength(n, cfg)
+        F_final = optimize_precoder(precoder_net, F_initial, config = cfg, epochs = epochs, lambda_rate = lambda_rate, lambda_power = lambda_power, 
+                                    lr_net = lr_net, lr_rate_constraint = lr_rate_constraint, lr_power_constraint = lr_power_constraint)
+        print(f''' --------------- Real Rate (B/n) = {cfg.B/cfg.n} -------------''')
+    initial_Rfbl = uplinksystem.R_fbl[user][block].real
+    pre_rate_constraint = (initial_Rfbl - cfg.B / cfg.n)
+    pre_power_constraint = (cfg.P - np.linalg.norm(uplinksystem.F[user][block], ord='fro')**2)
+    
+    print(f''' 
+User: {user}, block: {block} 
+Initial R_fbl: {initial_Rfbl}
+Initial pre rate contraints: {pre_rate_constraint}
+Initial pre_power_constraint: {pre_power_constraint} ''')
+# Initial F: {uplinksystem.F[user][block]}''')
