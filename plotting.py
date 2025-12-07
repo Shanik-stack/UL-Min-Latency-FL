@@ -265,7 +265,7 @@ def plot_2(uplinksystem):
     plot_rate_fbl2(uplinksystem)
 
 # ---------------------------- Plot Optimization ----------------------
-def plot_optimization_result(result: list, user: int, T):
+def plot_optimization_result(result: list):
 
     # result is a list of dicts like:
     # {"n": ..., "Real Rate (B/n)": ..., "R_fbl": ..., "F": ....}
