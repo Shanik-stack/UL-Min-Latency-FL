@@ -1,11 +1,10 @@
-from systemconstants import ChannelConstants
-from helper_functions import initialize_const
+from system_const import ChannelConstants
 from System import UplinkSystem
 import matplotlib.pyplot as plt
 import numpy as np
-from test_const import TEST_CONST
+from simulation_params import SYSTEM_TEST_PARAMS 
 
-# Plotting Channel Constansts/channel system
+# ------------------------- Plotting Channel Constansts/channel system --------------------
 
 def plot_channel_magnitude1(channelsystem, users: list[int] = []):
     if(len(users) == 0 ): users = list(range(0,channelsystem.K))
@@ -120,6 +119,8 @@ def check_latency_users(uplinksystem: UplinkSystem, users: list[int]=  []):
     print("\n----------Latency of Users {users}-------------")
     print(system.latency[users])
 
+# -------------------------- Plot Capacity ---------------------
+
 def plot_capacity1(uplinksystem: UplinkSystem, users: list[int] = []):
     if(len(users) == 0): users = list(range(0,system.K))
     K = len(users)
@@ -164,6 +165,7 @@ def plot_capacity2(uplinksystem: UplinkSystem, users: list[int] = []):
     plt.tight_layout()
     plt.show()
     
+# --------------------------- Plot Dispersion ----------------------
 
 def plot_dispersion1(uplinksystem: UplinkSystem, users: list[int] = []):
     if(len(users) == 0): users = list(range(0,system.K))
@@ -209,7 +211,8 @@ def plot_dispersion2(uplinksystem: UplinkSystem, users: list[int] = []):
     plt.tight_layout()
     plt.show()
 
-
+# ----------------------- Plot Rate ---------------------
+ 
 def plot_rate_fbl1(uplinksystem: UplinkSystem, users: list[int] = []):
     if(len(users) == 0): users = list(range(0,system.K))
     K = len(users)
@@ -260,15 +263,38 @@ def plot_2(uplinksystem):
     plot_capacity2(uplinksystem)
     plot_dispersion2(uplinksystem)
     plot_rate_fbl2(uplinksystem)
-    
+
+# ---------------------------- Plot Optimization ----------------------
+def plot_optimization_result(result: list, user: int, T):
+
+    # result is a list of dicts like:
+    # {"n": ..., "Real Rate (B/n)": ..., "R_fbl": ..., "F": ....}
+
+    # Extract arrays
+    n_vals = [d["n"] for d in result]
+    real_rates = [d["Real Rate (B/n)"] for d in result]
+    r_fbl_vals = [d["R_fbl"] for d in result]
+
+    # Plot
+    plt.figure()
+    plt.plot(n_vals, real_rates, marker='o', label='Real Rate (B/n) (bits/blocklength)')
+    plt.plot(n_vals, r_fbl_vals, marker='s', label='R_fbl')
+
+    plt.xlabel('Blocklength n')
+    plt.ylabel('Rate')
+    plt.legend()
+    plt.grid(True)
+
+    plt.gca().invert_xaxis()      # ← makes x-axis go high → low
+    plt.tight_layout()
+    plt.show()
     
 if __name__ == "__main__":
-    test_system_constants = TEST_CONST
+    test_system_constants = SYSTEM_TEST_PARAMS 
     channelsystem = ChannelConstants(test_system_constants)
     system = UplinkSystem(test_system_constants)
     # check_latency_users(system)
     plot_2(system)
     # plot_magnitude_per_block(channelsystem)
     # plot_magnitude_over_blocklength(channelsystem) 
-    
     

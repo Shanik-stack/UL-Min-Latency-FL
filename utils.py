@@ -1,6 +1,7 @@
 import numpy as np
 
-def initialize_const(K, B: list[int] = [], fs: list[int] = [], Pt = [], t: list[int] = [], Nr: list[int] = [], Nt:list[int] = [], N:list[int] = [], L: list[int] = [], snr_db: list[int] = [], desired_CNR: list[int] = [], epsilon:list[int] = []):                   
+# ------------------ Utility to initialize system constants --------------------
+def initialize_system_params(K, B: list[int] = [], fs: list[int] = [], Pt = [], Nr: list[int] = [], Nt:list[int] = [], N:list[int] = [], T: list[int] = [], snr_db: list[float] = [], desired_CNR: list[float] = [], epsilon:list[float] = []):                   
     
     K = K
     
@@ -9,9 +10,9 @@ def initialize_const(K, B: list[int] = [], fs: list[int] = [], Pt = [], t: list[
     NT = np.array(Nt) # no. of transmit antennas 
     # n = LT
     n = np.array(N) # blocklength/channel uses of each user: (K,)
-    L = np.array(L)
-    assert all(n%L == np.array([0]*K)) # check if n is divisble by L
-    T = n//L # Channel uses per coherant interval.
+    T = np.array(T) # blocks over which channel is constant
+    assert all(n%T == np.array([0]*K)) # check if n is divisble by L
+    L = n//T # NO. of coherant interval.
     
     dk = np.min((NR, NT), axis = 0)
     assert len(Pt) == K

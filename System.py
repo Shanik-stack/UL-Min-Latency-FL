@@ -1,9 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from systemconstants import *
-from test_const import TEST_CONST
+from system_const import *
+from simulation_params import *
 from scipy.stats import norm
 
+RNG = np.random.default_rng(seed)
 
 def Q_inv(x):
     return norm.ppf(1-x)
@@ -40,8 +41,8 @@ class UplinkSystem():
             sigma_k = np.sqrt(sigma2_k)
 
             # generate noise with std deviation: sigma
-            N_real = np.random.normal(0, 1/np.sqrt(2), (self.L[k], self.NR[k], self.T[k]))
-            N_imag = np.random.normal(0, 1/np.sqrt(2), (self.L[k], self.NR[k], self.T[k]))
+            N_real = RNG.normal(0, 1/np.sqrt(2), (self.L[k], self.NR[k], self.T[k]))
+            N_imag = RNG.normal(0, 1/np.sqrt(2), (self.L[k], self.NR[k], self.T[k]))
             
             N_k = sigma_k * (N_real + 1j*N_imag)
             self.N.append(N_k)
@@ -61,14 +62,19 @@ class UplinkSystem():
         self.R_fbl = [] #(K,L)
         self.usr_avg_C = [] #(K,)
         
-        self.update_system(self.F)
+        self.update_system(self.F, self.n)
     
-    def update_system(self, F):
+    def update_system(self, F, n):
         self.F = F
+        self.n = n
+        self.L = self.n // self.T
         for k in range(self.K):
-            I = np.identity(self.NR[k])
             Tk = self.T[k]
+            
             Hk = self.H[k] #(L,Nr,Nt)
+            Lk = self.L[k]
+            I = np.eye(self.NR[k])[None, :, :]  # shape (1, Nr, Nr)
+            I = np.repeat(I, Lk, axis=0) # shape (L, Nr, Nr)
             Hk_h_transpose = np.conj(Hk).transpose(0,2,1) #(L,Nt,Nr)
             
             Fk = self.F[k] #(L,NT,dk)
@@ -80,8 +86,19 @@ class UplinkSystem():
             epsilon_k = self.epsilon[k] #scalar
             
             Ck = np.log2(np.linalg.det(I + (Ak)/sigma2_k)) # (L,)
-            Vk = 0.5*(np.trace(I - (I + (Ak)/sigma2_k)**(-2) , axis1 = 1, axis2 = 2)) * (np.log2(np.e))**2
-            R_fblk = Ck - np.sqrt(Vk/Tk) * Q_inv(epsilon_k)
+            LOG2E_SQ = (np.log2(np.e))**2
+            
+            # Suppose A is (..., N, N), I is identity (..., N, N)
+            M = I + Ak / sigma2_k          # M
+
+            # Compute matrix inverse for each batch
+            M_inv = np.linalg.inv(M)   # shape (batch, N, N)
+            M_inv2 = np.matmul(M_inv, M_inv)  # M^-2
+
+            Vk = 0.5 * np.trace(I - M_inv2, axis1=1, axis2=2) * LOG2E_SQ
+
+
+            R_fblk = Ck - np.sqrt(Vk/Lk) * Q_inv(epsilon_k)
             # R_fblk = 0
             
             self.C.append(Ck)
@@ -94,7 +111,7 @@ class UplinkSystem():
     
         
 if __name__ == "__main__":   
-    System = UplinkSystem(TEST_CONST)
+    System = UplinkSystem(SYSTEM_TEST_PARAMS )
 
     #-----------------Sanity Check System--------------------$
     test_usr, test_block = 0,0
@@ -112,6 +129,10 @@ if __name__ == "__main__":
     print("|------------ System Constants ------------|")
     print(System.system_constants)
     print()
+    
+    print(System.R_fbl[test_usr][test_block].real)
+    print(System.C[test_usr][test_block].real)
+    print(System.F[test_usr][test_block])
 
     # System.check_SNR_user()
     # # System.check_SNR_block()
@@ -127,5 +148,5 @@ if __name__ == "__main__":
     # "Print Rate"
     # for usr in range(System.K):
     #     print(f"Rate_fbl per user : User {usr} :", System.R_fbl[usr])
-    print(System.sigma2[0])
+    # print(System.sigma2[0])
 

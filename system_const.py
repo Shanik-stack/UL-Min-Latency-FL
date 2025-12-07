@@ -1,8 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from helper_functions import *
-from test_const import TEST_CONST
+from utils import *
+from simulation_params import *
 """ Power constraints and precoder not yet implemented"""
+
+
+RNG = np.random.default_rng(seed)
 
 class ChannelConstants:
     def __init__(self, system_constants: dict = {}):
@@ -15,8 +18,8 @@ class ChannelConstants:
         # Generate K-user channel realizations
         for k in range(self.K):
             if(len(self.desired_CNR) == 0):
-                H_real = np.random.normal(0, 1/np.sqrt(2), (self.L[k], self.NR[k], self.NT[k]))
-                H_imag = np.random.normal(0, 1/np.sqrt(2), (self.L[k], self.NR[k], self.NT[k]))
+                H_real = RNG.normal(0, 1/np.sqrt(2), (self.L[k], self.NR[k], self.NT[k]))
+                H_imag = RNG.normal(0, 1/np.sqrt(2), (self.L[k], self.NR[k], self.NT[k]))
 
                 self.H.append(H_real + 1j * H_imag) # shape: (K,L,Nr,Nt)
             
@@ -35,11 +38,11 @@ class UserConstants:
         self.X = []
         self.F = []
         for k in range(self.K):
-            X_real_k = np.random.normal(0, 1/np.sqrt(2), (self.L[k], self.dk[k], self.T[k]))
-            X_imag_k = np.random.normal(0, 1/np.sqrt(2), (self.L[k], self.dk[k], self.T[k]))
+            X_real_k = RNG.normal(0, 1/np.sqrt(2), (self.L[k], self.dk[k], self.T[k]))
+            X_imag_k = RNG.normal(0, 1/np.sqrt(2), (self.L[k], self.dk[k], self.T[k]))
             
-            F_real_k = np.random.normal(0, 1/np.sqrt(2), (self.L[k], self.NT[k], self.dk[k]))
-            F_imag_k = np.random.normal(0, 1/np.sqrt(2), (self.L[k], self.NT[k], self.dk[k]))
+            F_real_k = RNG.normal(0, 1/np.sqrt(2), (self.L[k], self.NT[k], self.dk[k]))
+            F_imag_k = RNG.normal(0, 1/np.sqrt(2), (self.L[k], self.NT[k], self.dk[k]))
             
             X_k = X_real_k + 1j*X_imag_k
             F_k = F_real_k + 1j*F_imag_k
@@ -49,7 +52,6 @@ class UserConstants:
             for l in range(self.L[k]):
                 norm_factor = np.linalg.norm(F_k[l,:,:], 'fro')
                 F_k[l,:,:] = np.sqrt(self.Pt[k]) * F_k[l,:,:] / norm_factor  # satisfies tr(F F^H) = Pt
-                # print(norm_factor)
             # User Power Constraint
             # total_power = np.sum([np.linalg.norm(F_k[l,:,:], 'fro')**2 for l in range(self.L[k])])
             # F_k = np.sqrt(self.Pt[k]) * F_k / np.sqrt(total_power)
@@ -60,6 +62,6 @@ class UserConstants:
 
 
 if __name__ == "__main__":
-    ch = ChannelConstants(system_constants = TEST_CONST)
-    usr = UserConstants(system_constants = TEST_CONST)
+    ch = ChannelConstants(system_constants = SYSTEM_TEST_PARAMS )
+    usr = UserConstants(system_constants = SYSTEM_TEST_PARAMS )
     print(usr.Pt[1] - np.linalg.norm(usr.F[1][1], 'fro')**2, len(usr.F[1]))
