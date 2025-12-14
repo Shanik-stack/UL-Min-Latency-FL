@@ -11,6 +11,8 @@ from simulation_params import *
 
 LOG2E_SQ = (np.log2(np.e))**2
 
+DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
 def Q_inv(epsilon :float, device = None, dtype = torch.float32):
     val = norm.ppf(1 - epsilon)
     return torch.tensor(val, device = device, dtype = dtype)
@@ -31,7 +33,7 @@ class UserSystemConfig:
     dk: int
     sigma2: float
     epsilon: float
-    F: torch.Tensor
+    F_initial: torch.Tensor
     
 @dataclass
 class SimulationConfig:
@@ -72,13 +74,13 @@ def create_user_system_config(user:int, block:int, uplinksystem: UplinkSystem) -
         P = uplinksystem.Pt[user],
         T = uplinksystem.T[user],
         L = uplinksystem.L[user],
-        H = torch.tensor(uplinksystem.H[user][block], dtype = torch.complex64), #block is the same as L
+        H = torch.tensor(uplinksystem.H[user][block], dtype = torch.complex64, device = DEVICE), #block is the same as L
         Nr = uplinksystem.NR[user],
         Nt = uplinksystem.NT[user],
         dk = uplinksystem.dk[user],
         sigma2 = uplinksystem.sigma2[user],
         epsilon = uplinksystem.epsilon[user],
-        F = uplinksystem.F[user][block],
+        F_initial = uplinksystem.F[user][block],
     )
     return system_config
 
@@ -92,7 +94,6 @@ def create_simulation_config(
     n_min:int,
     n_max:int,
     n_step: int,
-    n: int
     ) -> SimulationConfig:
     
     simulation_config = SimulationConfig(initial_lambda_rate_constraint, initial_lambda_power_constraint, epochs_per_n, lr_net, lr_rate_constraint, lr_power_constraint, n_min,n_max,n_step)
@@ -100,7 +101,11 @@ def create_simulation_config(
     return simulation_config
     
 
-
+def print_result(result, s:str):
+    print(f"\nResult {s}: ")
+    for i in result[::-1]:   
+        print(i[s], end=", ")
+    print()
 
     
 
@@ -121,9 +126,9 @@ class UplinkMLP_PrecoderNet(nn.Module):
 
         init_scale = np.sqrt(target_power / expected_power)
         
-        self.F_scale = nn.Parameter(torch.tensor(1.0, dtype=torch.float32))
+        self.log_scale = nn.Parameter(torch.tensor(0.0, dtype = torch.float32))  # log(1)
 
-        # self.F_scale = torch.tensor(1.0, dtype = torch.float32)
+        # self.F_scale = nn.Parameter((torch.tensor(1.0, dtype = torch.float32))
         
         self.net = nn.Sequential(
             nn.Linear(in_dim, hidden),
@@ -132,7 +137,9 @@ class UplinkMLP_PrecoderNet(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden//2, hidden//4),
             nn.ReLU(),
-            nn.Linear(hidden//4, out_dim)
+            nn.Linear(hidden//4, out_dim),
+            nn.Tanh()                          # bounded output
+
         )
         
     def forward(self, H):
@@ -141,7 +148,7 @@ class UplinkMLP_PrecoderNet(nn.Module):
         H_real = H_flat.real
         H_imag = H_flat.imag
         H_combined = torch.cat((H_real, H_imag), dim = 1) #(1, 2 * Nr * Nt)
-        F_out = self.F_scale * self.net(H_combined)
+        F_out = torch.exp(self.log_scale) * self.net(H_combined)
         
         return F_out
     
@@ -167,7 +174,7 @@ class LagrangianLoss(nn.Module):
         self.lambda_rate = lambda_rate
         self.lambda_power = lambda_power
         
-        I = torch.eye(self.system_config.Nr, dtype = torch.complex64, device=F.device)
+        I = torch.eye(self.system_config.Nr, dtype = torch.complex64, device=H.device)
         H_h_transpose = H.conj().transpose(1, 0)  # (Nt, Nr)
         F_h_transpose = F.conj().transpose(1, 0)  # (dk, Nt)
         
@@ -179,13 +186,23 @@ class LagrangianLoss(nn.Module):
         
         #CAlculate Variance
         M = I + A / sigma2
-        M_inv = torch.linalg.solve(M, I) #M^-1
-        M_inv2 = M_inv @ M_inv # M^{-2}
-        V = 0.5 * torch.trace(I - M_inv2) * LOG2E_SQ
-        
-        # formula is changed to C - \sqrt{V/L} * Q^{-1}(\epsilon) for AWGN 
-        # (and also it doesnt make sense to use T because T is constant in a block and whats tht point of the optimization proccess then)
-        R_fbl_awgn = torch.real(C - torch.sqrt(V / L) * Q_inv(epsilon, device=F.device))
+        if torch.isnan(M).any() or torch.isinf(M).any():
+            print("NaN/Inf detected in M before inversion.")
+            print("Max:", M.abs().max())
+            print("Min:", M.abs().min())
+            print("sigma2:", sigma2)
+            print("H max:", H.abs().max())
+            print("F max:", F.abs().max())
+        try:
+            M_inv = M_inv = torch.linalg.solve(M + 1e-8*torch.eye(M.shape[0], device=M.device, dtype=M.dtype), I) #M^-1
+            M_inv2 = M_inv @ M_inv # M^{-2}
+            V = 0.5 * torch.trace(I - M_inv2) * LOG2E_SQ
+            
+            # formula is changed to C - \sqrt{V/L} * Q^{-1}(\epsilon) for AWGN 
+            # (and also it doesnt make sense to use T because T is constant in a block and whats tht point of the optimization proccess then)
+            R_fbl_awgn = torch.real(C - torch.sqrt(V / L) * Q_inv(epsilon, device=F.device))
+        except:
+            print("Min eigenvalue of M:", torch.linalg.eigvals(M).real.min())
         
         return R_fbl_awgn
     
@@ -215,21 +232,23 @@ class LagrangianLoss(nn.Module):
 def optimize_precoder(precoder_net,  F: torch.Tensor, system_config:UserSystemConfig, epochs: int,
                       lambda_rate: float, lambda_power: float,
                       lr_net, lr_rate_constraint, lr_power_constraint, optimizer = None):
-
+    
+    precoder_net = precoder_net.to(DEVICE)
     loss_fn = LagrangianLoss(system_config)
     if(optimizer == None):
         optimizer = torch.optim.Adam(precoder_net.parameters(), lr = lr_net)
     losses = []
     
     for epoch in range(epochs):
-        F_out = precoder_net(system_config.H)
+        H_in = system_config.H.to(DEVICE)
+        F_out = precoder_net(H_in)
         F = out_to_precoder(F_out[0], system_config.Nt, system_config.dk)
         
         optimizer.zero_grad()
         loss, R_fbl, F_power, rate_constraint, power_constraint = loss_fn(F, lambda_rate, lambda_power)
        
         # early stoppping
-        if(rate_constraint<=0 and power_constraint<=0):
+        if(rate_constraint<=0 and power_constraint<=0 and epoch>=20):
             break
        
         lambda_rate, lambda_power = update_lambdas(lambda_rate, lambda_power, rate_constraint, power_constraint, lr_rate_constraint, lr_power_constraint)
@@ -247,14 +266,14 @@ def optimize_precoder(precoder_net,  F: torch.Tensor, system_config:UserSystemCo
     
     F_out = precoder_net(system_config.H)
     F_final = out_to_precoder(F_out[0], system_config.Nt, system_config.dk)
-    return F_final.detach(), lambda_rate, lambda_power, R_fbl.detach(), F_power.detach(), rate_constraint.detach(), power_constraint.detach(), losses
+    return F_final.detach(),optimizer, lambda_rate, lambda_power, R_fbl.detach(), F_power.detach(), rate_constraint.detach(), power_constraint.detach(), losses
 
 
 
-# ---------------------- Precoder-BLocklength Optimization Loop ------------------------
-def optimize_precoder_blocklength(system_config:UserSystemConfig, simulation_config: SimulationConfig):
+# ---------------------- Precoder-BLocklength Optimization Loop per block ------------------------
+def optimize_precoder_blocklength_block(system_config:UserSystemConfig, simulation_config: SimulationConfig):
     
-    F = system_config.F
+    F = system_config.F_initial
     
     initial_lambda_rate_constraint = simulation_config.initial_lambda_rate_constraint
     initial_lambda_power_constraint = simulation_config.initial_lambda_power_constraint
@@ -267,81 +286,68 @@ def optimize_precoder_blocklength(system_config:UserSystemConfig, simulation_con
     n_step = simulation_config.n_step
     
     cfg = system_config
-    n = system_config.n
     
     result = []
     
     R_fbl = torch.tensor(0.0) 
-
+    stop_count = 1
+    count = 0
     
     # initialize only once (fixed)
-    precoder_net = UplinkMLP_PrecoderNet(system_config = system_config)
+    precoder_net = UplinkMLP_PrecoderNet(system_config = system_config).to(DEVICE)
     optimizer = torch.optim.Adam(precoder_net.parameters(), lr = lr_net)
 
     lambda_rate_constraint = initial_lambda_rate_constraint
     lambda_power_constraint = initial_lambda_power_constraint
+    for n in n_max - np.arange(n_min, n_max - n_min , n_step):
+        
+        cfg.n = n
+        cfg.L = cfg.n // cfg.T
+        
+        if(n == n_max - n_min):
+            epochs = 25000
+        else:
+            epochs = epochs_per_n
+        # Always optimize for this n first (fixed)
+        F_final, optimizer, lambda_rate,lambda_power, R_fbl,F_power, true_rate_constraint, true_power_constraint, loss = optimize_precoder(
+            precoder_net, F,
+            system_config = cfg,
+            epochs = epochs,
+            lambda_rate = lambda_rate_constraint,
+            lambda_power = lambda_power_constraint,
+            lr_net = lr_net,
+            lr_rate_constraint = lr_rate_constraint,
+            lr_power_constraint = lr_power_constraint,
+            # optimizer = None,
+            optimizer = optimizer
+        )
+        
+        #Update lambda
+        lambda_rate_constraint = lambda_rate
+        lambda_power_constraint = lambda_power
+        
+        # Check feasibility on updated R_fbl and updated F_final 
+        if true_rate_constraint <= 0 and true_power_constraint <= 0:
+            result.append({
+                "n": cfg.n,
+                "F": F_final,
+                "optimizer": optimizer,
+                "lambda_rate": lambda_rate_constraint,
+                "lambda_power": lambda_power_constraint,
+                "Real Rate (B/n)": cfg.B/cfg.n,
+                "R_fbl": R_fbl.item(),
+                "F_power": F_power,
+                "loss": loss
+            })
+            print(f" --------------- Possible Real Rate (B/n) = {cfg.B/cfg.n} -------------")
+        else:
+            count += 1
+            print("COUNT: ", count)
+            print(f"---- Not Possible Real Rate (B/n) {cfg.B/cfg.n} -------")
 
-    
-
-    F_final,lambda_rate,lambda_power, R_fbl, F_power, true_rate_constraint, true_power_constraint, loss = optimize_precoder(
-        precoder_net, F,
-        system_config = cfg,
-        epochs = epochs_per_n,
-        lambda_rate = lambda_rate_constraint,
-        lambda_power = lambda_power_constraint,
-        lr_net = lr_net,
-        lr_rate_constraint = lr_rate_constraint,
-        lr_power_constraint = lr_power_constraint,
-        optimizer = optimizer
-    )
-    
-    #Update lambda
-    lambda_rate_constraint = lambda_rate
-    lambda_power_constraint = lambda_power
-    
-    # Check feasibility on updated R_fbl and updated F_final 
-    if true_rate_constraint <= 0 and true_power_constraint <= 0:
-        result.append({
-            "n": cfg.n,
-            "F": F_final,
-            "optmizer":optimizer,
-            "lambda_rate": lambda_rate_constraint,
-            "lambda_power": lambda_power_constraint,
-            "Real Rate (B/n)": cfg.B/cfg.n,
-            "R_fbl": R_fbl.item(),
-            "F_power": F_power,
-            "loss": loss,
-        })
-        print(f" --------------- Possible Real Rate (B/n) = {cfg.B/cfg.n} -------------")
-    else:
-        print(f"---- Not Possible Real Rate (B/n) {cfg.B/cfg.n} -------")
-    
-    return result
-
-
-
-
-if __name__ == "__main__":
-    user = 0
-    block = 0
-    # test_system_constants = initialize_const()
-    uplinksystem = UplinkSystem(SYSTEM_TEST_PARAMS)
-
-    system_cfg = create_user_system_config(user, block, uplinksystem)
-    simulation_cfg = create_simulation_config(*SIMULATION_TEST_PARAMS.values())
-
-    precoder_net =  UplinkMLP_PrecoderNet(system_config = system_cfg)
-    F = torch.tensor(uplinksystem.F[user][block])
-    print("Power", torch.linalg.norm(F, ord='fro')**2)
-    
-    result = optimize_precoder_blocklength(system_config= system_cfg, simulation_config = simulation_cfg)
-    
-    def print_result(result, s:str):
-        print(f"\nResult {s}: ")
-        for i in result[::-1]:   
-            print(i[s], end=", ")
-        print()
-            
+        # Stop early if too many failures
+        if count >= stop_count:
+            break
     print_result(result, "n")
     print_result(result, "R_fbl")
     print_result(result, "F_power")
@@ -349,7 +355,76 @@ if __name__ == "__main__":
     print_result(result, "lambda_power")
 
         
-    # plot_optimization_result(result)
+    # plot_optimization_result(result
+    
+    return result
+
+
+            
+
+def optimize_blocklength_user(user:int, uplinksystem: UplinkSystem, simulation_cfg: SimulationConfig):
+    L = uplinksystem.L[user]
+    B = uplinksystem.B[user]
+    T = uplinksystem.T[user]
+    result_R_fbl = []
+    result_n = []
+    User_Result = []
+    for block in range(L):
+        print(f"|------------------- Block: {block} ----------------|")
+        system_cfg = create_user_system_config(user, block, uplinksystem)
+        result = optimize_precoder_blocklength_block(system_config= system_cfg, simulation_config = simulation_cfg)
+        User_Result.append(result)
+        largest_R_fbl = result[-1]["R_fbl"]
+        smallest_n = result[-1]["n"]
+        
+        result_R_fbl.append(largest_R_fbl)
+        result_n.append(smallest_n)
+    
+    avg_R_fbl = np.mean(result_R_fbl)
+    
+    
+    new_n = int(B/avg_R_fbl)
+    new_L = new_n//T
+    
+    check_n_validity = 0
+    
+    #Check if rates in each block agrees with avg rate (Dont know if needed)
+    # count = 0
+    # while(not check_n_validity):
+    #     for block in range(new_L):
+    #         if result_R_fbl[block] < avg_R_fbl:
+    #             break
+    #         if(block == new_L - 1):
+    #             check_n_validity = 1
+    #     if(not check_n_validity):
+    #         count+=1
+    #         new_n =  new_n + simulation_cfg.n_step
+    #         new_n = result[-1-count]["n"]
+    #         print("new_n from step", new_n)
+    #         new_L = new_n//T
+    #         avg_R_fbl = np.mean(result[-1-count])
+    
+    return new_n, new_L, User_Result
+    
+
+
+if __name__ == "__main__":
+    user = 0
+    # test_system_constants = initialize_const()
+    uplinksystem = UplinkSystem(SYSTEM_TEST_PARAMS)
+
+    simulation_cfg = create_simulation_config(*SIMULATION_TEST_PARAMS.values())
+    # system_cfg = create_user_system_config(user, block, uplinksystem)
+
+    # precoder_net =  UplinkMLP_PrecoderNet(system_config = system_cfg)
+    # F = torch.tensor(uplinksystem.F[user][block])
+    # print("Power", torch.linalg.norm(F, ord='fro')**2)
+    
+    new_n = optimize_blocklength_user(user, uplinksystem, simulation_cfg)
+    print(new_n)
+    
+    
+
 
 
 

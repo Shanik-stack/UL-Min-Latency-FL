@@ -265,10 +265,15 @@ def plot_2(uplinksystem):
     plot_rate_fbl2(uplinksystem)
 
 # ---------------------------- Plot Optimization ----------------------
-def plot_optimization_result(result: list):
+def plot_optimization_result(result: list, user_idx = None, block_idx = None ):
+    """
+    Plot optimization results for a given user and block.
 
-    # result is a list of dicts like:
-    # {"n": ..., "Real Rate (B/n)": ..., "R_fbl": ..., "F": ....}
+    Args:
+        user_idx: index of the user
+        block_idx: index of the block
+        result: list of dicts like {"n": ..., "Real Rate (B/n)": ..., "R_fbl": ..., "F": ....}
+    """
 
     # Extract arrays
     n_vals = [d["n"] for d in result]
@@ -282,13 +287,61 @@ def plot_optimization_result(result: list):
 
     plt.xlabel('Blocklength n')
     plt.ylabel('Rate')
+    if(user_idx != None and block_idx != None ):
+        plt.title(f'User {user_idx}, Block {block_idx}')  # ← display user/block info
     plt.legend()
     plt.grid(True)
-
-    plt.gca().invert_xaxis()      # ← makes x-axis go high → low
+    plt.gca().invert_xaxis()  # x-axis high → low
     plt.tight_layout()
-    plt.show()
-    
+    plt.savefig(fr"C:\All Codes\Taiwan_Internship\UL_MIN_LATENCY\figs\optimization_user{user_idx}_block{block_idx}.png")
+
+import numpy as np
+import matplotlib.pyplot as plt
+def plot_SNR_result(user_result, uplinksystem, user_idx=None):
+    """
+    Compute user-wide SNR averaged across L symbols (blocks) for each iteration
+    and plot vs iteration.
+
+    user_result[it]["F"] = tensor(L, Nt, dk)
+    """
+    L  = uplinksystem.L[user_idx]
+    Nr = uplinksystem.NR[user_idx]
+    Nt = uplinksystem.NT[user_idx]
+
+    # Channel, symbols, noise
+    H = uplinksystem.H[user_idx][:L]    # (L, Nr, Nt)
+    X = uplinksystem.X[user_idx][:L]    # (L, dk, T)
+    N = uplinksystem.N[user_idx][:L]    # (L, Nr, T)
+
+    num_iterations = np.min([len(user_block_result) for user_block_result in user_result])
+    snr_trace_per_iteration = []
+
+    for it in range(num_iterations):
+        Y = np.zeros_like(N, dtype=np.complex128)  # (L, Nr, T)
+
+        for l in range(L):
+            F_l = user_result[l][it]["F"].cpu().numpy()  # (L, Nt, dk)
+            Y[l] = H[l] @ F_l @ X[l]  # (Nr, T)
+
+        # Compute SNR averaged over L symbols
+        P_signal = np.mean(np.abs(Y)**2)
+        P_noise  = np.mean(np.abs(N)**2)
+        snr_avg  = P_signal / P_noise
+
+        snr_trace_per_iteration.append(10 * np.log10(snr_avg))
+
+    # Plot
+    plt.figure()
+    plt.plot(snr_trace_per_iteration, marker='o')
+    plt.xlabel("Iteration")
+    plt.ylabel("User-wide SNR (dB)")
+    plt.title(f"User {user_idx} SNR Trajectory (averaged over L symbols)")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(fr"C:\All Codes\Taiwan_Internship\UL_MIN_LATENCY\figs\SNR_user{user_idx}.png")
+
+
+            
 if __name__ == "__main__":
     test_system_constants = SYSTEM_TEST_PARAMS 
     channelsystem = ChannelConstants(test_system_constants)

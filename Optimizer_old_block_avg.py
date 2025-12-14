@@ -31,7 +31,7 @@ class UserSystemConfig:
     dk: int
     sigma2: float
     epsilon: float
-    F: torch.Tensor
+    F_initial: torch.Tensor
     
 @dataclass
 class SimulationConfig:
@@ -65,20 +65,20 @@ def update_lambdas(lambda_rate:float, lambda_power:float, rate_constraint, power
     lambda_power = max(0, lambda_power + lr_power_constraint * power_constraint)
     return lambda_rate, lambda_power
 
-def create_user_system_config(user:int, block:int, uplinksystem: UplinkSystem) -> UserSystemConfig:
+def create_user_system_config(user:int, uplinksystem: UplinkSystem) -> UserSystemConfig:
     system_config = UserSystemConfig(
         B = uplinksystem.B[user],
         n = uplinksystem.n[user],
         P = uplinksystem.Pt[user],
         T = uplinksystem.T[user],
         L = uplinksystem.L[user],
-        H = torch.tensor(uplinksystem.H[user][block], dtype = torch.complex64), #block is the same as L
+        H = torch.tensor(uplinksystem.H[user], dtype = torch.complex64), #block is the same as L
         Nr = uplinksystem.NR[user],
         Nt = uplinksystem.NT[user],
         dk = uplinksystem.dk[user],
         sigma2 = uplinksystem.sigma2[user],
         epsilon = uplinksystem.epsilon[user],
-        F = uplinksystem.F[user][block],
+        F_initial = uplinksystem.F[user],
     )
     return system_config
 
@@ -92,7 +92,6 @@ def create_simulation_config(
     n_min:int,
     n_max:int,
     n_step: int,
-    n: int
     ) -> SimulationConfig:
     
     simulation_config = SimulationConfig(initial_lambda_rate_constraint, initial_lambda_power_constraint, epochs_per_n, lr_net, lr_rate_constraint, lr_power_constraint, n_min,n_max,n_step)
@@ -229,7 +228,7 @@ def optimize_precoder(precoder_net,  F: torch.Tensor, system_config:UserSystemCo
         loss, R_fbl, F_power, rate_constraint, power_constraint = loss_fn(F, lambda_rate, lambda_power)
        
         # early stoppping
-        if(rate_constraint<=0 and power_constraint<=0):
+        if(rate_constraint<=0 and power_constraint<=0 and epoch>=20):
             break
        
         lambda_rate, lambda_power = update_lambdas(lambda_rate, lambda_power, rate_constraint, power_constraint, lr_rate_constraint, lr_power_constraint)
@@ -254,7 +253,7 @@ def optimize_precoder(precoder_net,  F: torch.Tensor, system_config:UserSystemCo
 # ---------------------- Precoder-BLocklength Optimization Loop ------------------------
 def optimize_precoder_blocklength(system_config:UserSystemConfig, simulation_config: SimulationConfig):
     
-    F = system_config.F
+    F = system_config.F_initial
     
     initial_lambda_rate_constraint = simulation_config.initial_lambda_rate_constraint
     initial_lambda_power_constraint = simulation_config.initial_lambda_power_constraint
@@ -267,12 +266,12 @@ def optimize_precoder_blocklength(system_config:UserSystemConfig, simulation_con
     n_step = simulation_config.n_step
     
     cfg = system_config
-    n = system_config.n
     
     result = []
     
     R_fbl = torch.tensor(0.0) 
-
+    stop_count = 2
+    count = 0
     
     # initialize only once (fixed)
     precoder_net = UplinkMLP_PrecoderNet(system_config = system_config)
@@ -280,41 +279,50 @@ def optimize_precoder_blocklength(system_config:UserSystemConfig, simulation_con
 
     lambda_rate_constraint = initial_lambda_rate_constraint
     lambda_power_constraint = initial_lambda_power_constraint
+    for n in n_max - np.arange(n_min, n_max - n_min , n_step):
+        
+        cfg.n = n
+        cfg.L = cfg.n // cfg.T
 
-    
+        # Always optimize for this n first (fixed)
+        F_final,lambda_rate,lambda_power, R_fbl,F_power, true_rate_constraint, true_power_constraint, loss = optimize_precoder(
+            precoder_net, F,
+            system_config = cfg,
+            epochs = epochs_per_n,
+            lambda_rate = lambda_rate_constraint,
+            lambda_power = lambda_power_constraint,
+            lr_net = lr_net,
+            lr_rate_constraint = lr_rate_constraint,
+            lr_power_constraint = lr_power_constraint,
+            # optimizer = None,
+            optimizer = optimizer
+        )
+        
+        #Update lambda
+        lambda_rate_constraint = lambda_rate
+        lambda_power_constraint = lambda_power
+        
+        # Check feasibility on updated R_fbl and updated F_final 
+        if true_rate_constraint <= 0 and true_power_constraint <= 0:
+            result.append({
+                "n": cfg.n,
+                "F": F_final,
+                "lambda_rate": lambda_rate_constraint,
+                "lambda_power": lambda_power_constraint,
+                "Real Rate (B/n)": cfg.B/cfg.n,
+                "R_fbl": R_fbl.item(),
+                "F_power": F_power,
+                "loss": loss
+            })
+            print(f" --------------- Possible Real Rate (B/n) = {cfg.B/cfg.n} -------------")
+        else:
+            count += 1
+            print("COUNT: ", count)
+            print(f"---- Not Possible Real Rate (B/n) {cfg.B/cfg.n} -------")
 
-    F_final,lambda_rate,lambda_power, R_fbl, F_power, true_rate_constraint, true_power_constraint, loss = optimize_precoder(
-        precoder_net, F,
-        system_config = cfg,
-        epochs = epochs_per_n,
-        lambda_rate = lambda_rate_constraint,
-        lambda_power = lambda_power_constraint,
-        lr_net = lr_net,
-        lr_rate_constraint = lr_rate_constraint,
-        lr_power_constraint = lr_power_constraint,
-        optimizer = optimizer
-    )
-    
-    #Update lambda
-    lambda_rate_constraint = lambda_rate
-    lambda_power_constraint = lambda_power
-    
-    # Check feasibility on updated R_fbl and updated F_final 
-    if true_rate_constraint <= 0 and true_power_constraint <= 0:
-        result.append({
-            "n": cfg.n,
-            "F": F_final,
-            "optmizer":optimizer,
-            "lambda_rate": lambda_rate_constraint,
-            "lambda_power": lambda_power_constraint,
-            "Real Rate (B/n)": cfg.B/cfg.n,
-            "R_fbl": R_fbl.item(),
-            "F_power": F_power,
-            "loss": loss,
-        })
-        print(f" --------------- Possible Real Rate (B/n) = {cfg.B/cfg.n} -------------")
-    else:
-        print(f"---- Not Possible Real Rate (B/n) {cfg.B/cfg.n} -------")
+        # Stop early if too many failures
+        if count >= stop_count:
+            break
     
     return result
 
@@ -322,12 +330,12 @@ def optimize_precoder_blocklength(system_config:UserSystemConfig, simulation_con
 
 
 if __name__ == "__main__":
-    user = 0
+    user = 1
     block = 0
     # test_system_constants = initialize_const()
     uplinksystem = UplinkSystem(SYSTEM_TEST_PARAMS)
 
-    system_cfg = create_user_system_config(user, block, uplinksystem)
+    system_cfg = create_user_system_config(user, uplinksystem)
     simulation_cfg = create_simulation_config(*SIMULATION_TEST_PARAMS.values())
 
     precoder_net =  UplinkMLP_PrecoderNet(system_config = system_cfg)
@@ -349,7 +357,7 @@ if __name__ == "__main__":
     print_result(result, "lambda_power")
 
         
-    # plot_optimization_result(result)
+    plot_optimization_result(result)
 
 
 

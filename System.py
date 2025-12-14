@@ -25,32 +25,42 @@ class UplinkSystem():
         self.F = self.UserSystem.F
         self.Y = []
         
+        self.CNR_linear = []
+        self.CNR_db = []
+        self.SNR_linear = []
+        self.SNR_db = []
         self.sigma2 = [] #noise variance 
         
         for k in range(self.K):
-            # noiseless received signal
             Y_k = (self.H[k] @ (self.F[k] @ self.X[k])).reshape(-1)
             P_signal_user = np.mean(np.abs(Y_k)**2)
-
-            # target SNR (convert dB to linear)
             gamma_lin = 10**(self.SNR_DB[k] / 10)
-
-            # required noise variance sigma^2
             sigma2_k = P_signal_user / gamma_lin
             self.sigma2.append(sigma2_k)
             sigma_k = np.sqrt(sigma2_k)
 
-            # generate noise with std deviation: sigma
+            # SNR
+            snr_linear_k = P_signal_user / sigma2_k
+            snr_db_k = 10 * np.log10(snr_linear_k)
+            self.SNR_linear.append(snr_linear_k)
+            self.SNR_db.append(snr_db_k)
+
+            # CNR
+            H_power = np.mean([np.linalg.norm(self.H[k][l], 'fro')**2 for l in range(self.H[k].shape[0])])
+            cnr_linear = H_power / sigma2_k
+            cnr_db = 10 * np.log10(cnr_linear)
+            self.CNR_linear.append(cnr_linear)
+            self.CNR_db.append(cnr_db)
+
+            # Noise
             N_real = RNG.normal(0, 1/np.sqrt(2), (self.L[k], self.NR[k], self.T[k]))
             N_imag = RNG.normal(0, 1/np.sqrt(2), (self.L[k], self.NR[k], self.T[k]))
-            
             N_k = sigma_k * (N_real + 1j*N_imag)
             self.N.append(N_k)
-            # received signal with noise
-            Y_k_noisy = self.H[k] @ (self.F[k] @ self.X[k]) + N_k  # (L,Nr,Nt)x( (L,NT,dk)x(L,dk,T) = (L,Nt,T) ) + (L,Nr,T) = (L, Nr, T)
-
+            
+            Y_k_noisy = self.H[k] @ (self.F[k] @ self.X[k]) + N_k
             self.Y.append(Y_k_noisy)
-        
+            
         # Using Einsum might be faster
         # self.Y = np.einsum('klij,kljt->klit', self.H, self.X) + self.N
         
@@ -63,6 +73,7 @@ class UplinkSystem():
         self.usr_avg_C = [] #(K,)
         
         self.update_system(self.F, self.n)
+    
     
     def update_system(self, F, n):
         self.F = F
@@ -106,9 +117,68 @@ class UplinkSystem():
             self.R_fbl.append(R_fblk)
             
             self.usr_avg_C.append(np.mean(Ck, axis = 0))  
-        
-                                    
-    
+            
+            
+    def get_SNR(self):
+        """
+        Compute SNR per user using current channel, transmitted signal, and actual noise power from self.N.
+        Returns:
+            SNR_linear: list of linear SNR per user
+            SNR_dB: list of SNR in dB per user
+        """
+        import numpy as np
+
+        SNR_linear = []
+        SNR_dB = []
+
+        for k in range(self.K):
+            # noiseless received signal
+            Y_signal = self.H[k] @ (self.F[k] @ self.X[k])  # shape: (L, Nr, T)
+            P_signal_user = np.mean(np.abs(Y_signal)**2)
+
+            # actual noise power from self.N
+            N_k = self.N[k]
+            sigma2_k = np.mean(np.abs(N_k)**2)  # average noise power
+
+            # linear and dB SNR
+            snr_lin = P_signal_user / sigma2_k
+            snr_db = 10 * np.log10(snr_lin)
+
+            SNR_linear.append(snr_lin)
+            SNR_dB.append(snr_db)
+
+        return SNR_linear, SNR_dB
+
+
+    def get_CNR(self):
+        """
+        Compute CNR per user using channel power and actual noise power from self.N.
+        Returns:
+            CNR_linear: list of linear CNR per user
+            CNR_dB: list of CNR in dB per user
+        """
+        import numpy as np
+
+        CNR_linear = []
+        CNR_dB = []
+
+        for k in range(self.K):
+            # channel power per user (average Frobenius norm squared over L)
+            H_power = np.mean([np.linalg.norm(self.H[k][l], 'fro')**2 for l in range(self.H[k].shape[0])])
+
+            # actual noise power from self.N
+            N_k = self.N[k]
+            sigma2_k = np.mean(np.abs(N_k)**2)
+
+            # linear and dB CNR
+            cnr_lin = H_power / sigma2_k
+            cnr_db = 10 * np.log10(cnr_lin)
+
+            CNR_linear.append(cnr_lin)
+            CNR_dB.append(cnr_db)
+
+        return CNR_linear, CNR_dB
+ 
         
 if __name__ == "__main__":   
     System = UplinkSystem(SYSTEM_TEST_PARAMS )

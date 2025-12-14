@@ -5,22 +5,22 @@ test_k = 2 # Number of users
 test_Nr = [16]*test_k  #Number of receive antenna per user at BS
 test_Nt = [4]*test_k #Numver of transmit antennaa per user
 
-test_n = [600, 200] # Initial Blocklength for each user
-test_t = [20, 10]  
+test_n = [200, 200] # Initial Blocklength for each user
+test_t = [100, 50]  
 
 test_snr_db = [5.0, 10.0]
-test_Pt = [30.0, 10.0]
+test_Pt = [20.0, 10.0]
 test_fs = [2] * test_k
 test_B = [2000, 2000]
-test_epsilon = [1e-10, 1e-5]
+test_epsilon = [1e-5, 1e-5]
 
-seed = 42
+seed = 0
 
 #------------------- Simulation Params --------------------
-initial_lambda_rate_constraint =  0.1
+initial_lambda_rate_constraint =  1
 initial_lambda_power_constraint =  0.1
-epochs_per_n =  1000
-lr_net =  0.001
+epochs_per_n =  500
+lr_net =  0.0001
 lr_rate_constraint =  0.01
 lr_power_constraint =  0.01
 n_min =  100
