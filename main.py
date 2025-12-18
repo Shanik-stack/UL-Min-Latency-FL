@@ -1,7 +1,7 @@
 from System import *
-from Optimizer_old import *
+from Optimizer_per_block import *
 from simulation_params import SYSTEM_TEST_PARAMS 
-
+import os
 def update(user, user_result,new_n, new_L, iteration:int,  uplink_system:UplinkSystem):
     # Update n
     # Update L
@@ -14,20 +14,28 @@ def update(user, user_result,new_n, new_L, iteration:int,  uplink_system:UplinkS
     print("Updated F: ", uplink_system.F[user].shape)
     return uplink_system
 
+def clear_figs(path = "figs"):
+    path = os.getcwd() + f"\{path}"
+    for filename in os.listdir(path):
+        if "png" in filename:
+            os.remove(fr"{path}\{filename}")
+    
 if __name__ == "__main__":
+    
+    clear_figs()
+    
     all_user_results = []
     uplinksystem = UplinkSystem(SYSTEM_TEST_PARAMS)
     
     simulation_cfg = create_simulation_config(*SIMULATION_TEST_PARAMS.values())
     
-    for user in range(uplinksystem.K):
-    # for user in range(1):
+    for user in range(1,2):
         print(f" |----------------- User: {user} -----------------|")
                 
         new_n, new_L, user_result = optimize_blocklength_user(user, uplinksystem, simulation_cfg)
         all_user_results.append(user_result)
         update(user, user_result, new_n, new_L, iteration = -1, uplink_system = uplinksystem)
-            
+    
     for user_idx, user_result in enumerate(all_user_results):
         for block_idx, block_result in enumerate(user_result):
             result = block_result

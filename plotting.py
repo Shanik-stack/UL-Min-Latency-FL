@@ -272,17 +272,17 @@ def plot_optimization_result(result: list, user_idx = None, block_idx = None ):
     Args:
         user_idx: index of the user
         block_idx: index of the block
-        result: list of dicts like {"n": ..., "Real Rate (B/n)": ..., "R_fbl": ..., "F": ....}
+        result: list of dicts like {"n": ..., "Bits per Blocklength(B/n)": ..., "R_fbl": ..., "F": ....}
     """
 
     # Extract arrays
     n_vals = [d["n"] for d in result]
-    real_rates = [d["Real Rate (B/n)"] for d in result]
+    real_rates = [d["Bits per Blocklength"] for d in result]
     r_fbl_vals = [d["R_fbl"] for d in result]
 
     # Plot
     plt.figure()
-    plt.plot(n_vals, real_rates, marker='o', label='Real Rate (B/n) (bits/blocklength)')
+    plt.plot(n_vals, real_rates, marker='o', label='Bits per Blocklength(B/n) (bits/blocklength)')
     plt.plot(n_vals, r_fbl_vals, marker='s', label='R_fbl')
 
     plt.xlabel('Blocklength n')
@@ -335,7 +335,7 @@ def plot_SNR_result(user_result, uplinksystem, user_idx=None):
     plt.plot(snr_trace_per_iteration, marker='o')
     plt.xlabel("Iteration")
     plt.ylabel("User-wide SNR (dB)")
-    plt.title(f"User {user_idx} SNR Trajectory (averaged over L symbols)")
+    plt.title(f"User {user_idx} SNR Trajectory (averaged over L coherant blocks)")
     plt.grid(True)
     plt.tight_layout()
     plt.savefig(fr"C:\All Codes\Taiwan_Internship\UL_MIN_LATENCY\figs\SNR_user{user_idx}.png")

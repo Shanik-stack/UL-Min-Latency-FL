@@ -5,26 +5,28 @@ test_k = 2 # Number of users
 test_Nr = [16]*test_k  #Number of receive antenna per user at BS
 test_Nt = [4]*test_k #Numver of transmit antennaa per user
 
-test_n = [200, 200] # Initial Blocklength for each user
-test_t = [100, 50]  
+test_n = [250, 250] # Initial Blocklength for each user
+test_t = [50, 50]  
+
+#If Optimizer_per_block test_n and test_n dont matter, use these constants constaints to set test_L 
 
 test_snr_db = [5.0, 10.0]
 test_Pt = [20.0, 10.0]
 test_fs = [2] * test_k
-test_B = [2000, 2000]
-test_epsilon = [1e-5, 1e-5]
+test_B = [200, 2000] # If using Optimising per_block B denotes B bits per block
+test_epsilon = [1e-10, 1e-10]
 
 seed = 0
 
 #------------------- Simulation Params --------------------
 initial_lambda_rate_constraint =  1
 initial_lambda_power_constraint =  0.1
-epochs_per_n =  500
+epochs_per_n =  200
 lr_net =  0.0001
 lr_rate_constraint =  0.01
 lr_power_constraint =  0.01
-n_min =  100
-n_max = 600
+n_min =  5
+n_max = 250
 n_step =  5
 
 
